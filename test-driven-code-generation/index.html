@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Generador de Código IA con TDD en JavaScript</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-10">
+    <div class="max-w-3xl mx-auto bg-white p-8 rounded-lg shadow-md">
+        <h1 class="text-3xl font-bold mb-6 text-center text-blue-600">AI Code Generator (JS)</h1>
+        
+        <div class="grid grid-cols-2 gap-6">
+            <div>
+                <label class="block text-gray-700 text-sm font-bold mb-2">📝 Especificaciones de Test:</label>
+                <textarea id="testSpecs" class="w-full p-3 border rounded-lg bg-gray-50 focus:outline-blue-300" rows="10" spellcheck="false">
+function testAdder() {
+                    
+// Configuración del test
+const sut = new Adder(1, 2);
+
+// Verificación del resultado
+assert(sut.result === 3)
+}
+// Ejecutar el test
+testAdder();
+
+                </textarea>
+                <div class="mt-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">🔗 Ollama Server URL:</label>
+                    <input 
+                        type="text" 
+                        id="ollamaUrl" 
+                        value="http://localhost:11434/api/generate" 
+                        class="w-full p-2 border rounded-lg"
+                    >
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">🤖 Implementación Generada:</label>
+                    <pre id="generatedCode" class="bg-gray-100 p-3 rounded-lg h-64 overflow-auto text-sm"></pre>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">📊 Estado:</label>
+                    <div id="consoleOutput"></div>
+                    <div id="processStatus" class="text-sm"></div>
+                </div>
+
+                <button 
+                    onclick="startCodeGeneration()" 
+                    class="w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition"
+                >
+                    🚀 Iniciar Generación de Código
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const generatedCodeEl = document.getElementById('generatedCode');
+        const consoleOutputEl = document.getElementById('consoleOutput');
+        const processStatusEl = document.getElementById('processStatus');
+        const testSpecsEl = document.getElementById('testSpecs');
+        const ollamaUrlEl = document.getElementById('ollamaUrl');
+
+        // Sistema de assertions personalizado
+        function assert(condition, message = 'Assertion failed') {
+            if (!condition) {
+                throw new Error(message);
+            }
+        }
+
+        // Sistema de ejecución de tests
+        function runTests(code) {
+            try {
+                // Combina el código generado con las especificaciones de test
+                const fullCode = `
+                ${code}
+                // Ejecuta los tests
+                ${testSpecsEl.value}
+                `;
+
+                // Ejecuta el código completo
+                new Function(fullCode)();
+                return ''; // Si no hay errores, devuelve cadena vacía
+            } catch (error) {
+                return error.toString();
+            }
+        }
+
+        async function generateCodeWithOllama(prompt) {
+            try {
+                const response = await fetch(ollamaUrlEl.value, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: "llama3.2",
+                        system: `Imagine that you are a programmer and the user's responses are feedback from compiling your code in your development environment. Your responses are the code you write, and the user's responses represent the feedback, including any errors.
+
+Implement the SUT's code in JavaScript based on the provided specs (unit tests).
+
+Follow these strict guidelines:
+1. Provide ONLY runnable JavaScript code. No explanations, comments, or formatting.
+2. DO NOT include the given specifications, assert function implementations or any unit testing related code in your response, as those well be concatenated locally with your response, so if your response also contain those that may result in errors of duplicated code.
+3. DO ONLY provide the "sut" implementation.
+3. Your implementation must pass all tests.
+4. Please, DO NOT wrap your answer with markdown codeblock formatting (backsticks), DO return the RAW code. Keep in mind that your answer will be tested as is in a dev environment and including backsticks will result in a compiler error as they're not valid code.
+
+If your code fails to compile, the user will provide the error output for you to make adjustments.
+`,
+                        prompt: prompt,
+                        stream: false
+                    })
+                });
+
+                const data = await response.json();
+                return data.response;
+            } catch (error) {
+                processStatusEl.innerHTML = `❌ Error de conexión: ${error.message}`;
+                return null;
+            }
+        }
+
+        async function startCodeGeneration() {
+            const maxIterations = 15;
+            let currentIteration = 0;
+            let generatedCode = '';
+            let testOutput = 'Initial run';
+
+            processStatusEl.innerHTML = '🔄 Iniciando generación de código...';
+            consoleOutputEl.innerHTML = '';
+
+            while (currentIteration < maxIterations && testOutput.length > 0) {
+                currentIteration++;
+                processStatusEl.innerHTML = `🧪 Iteración ${currentIteration}...`;
+
+                // Genera código basado en el test anterior y su output
+                generatedCode = await generateCodeWithOllama(
+                    `Feedback from previous iteration: ${testOutput}\n\nOriginal Test:\n${testSpecsEl.value}`
+                );
+
+                if (!generatedCode) break;
+
+                generatedCodeEl.textContent = generatedCode;
+
+                // Ejecuta los tests con el código generado
+                testOutput = runTests(generatedCode);
+                consoleOutputEl.innerHTML = testOutput
+                if (testOutput === '') {
+                    processStatusEl.innerHTML = `✅ Código generado exitosamente en ${currentIteration} iteraciones`;
+                    break;
+                }
+            }
+
+            if (currentIteration === maxIterations) {
+                processStatusEl.innerHTML = '❌ Límite de iteraciones alcanzado sin resolver';
+            }
+        }
+    </script>
+</body>
+</html>
